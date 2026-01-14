@@ -5,13 +5,13 @@ CREATE DATABASE IF NOT EXISTS cinestream CHARACTER SET utf8mb4 COLLATE utf8mb4_u
 USE cinestream;
 
 -- Movies table
+-- Note: movie_id should match the ID from the CSV dataset
+-- This table will be populated from CSV file
 CREATE TABLE IF NOT EXISTS movies (
-    movie_id INT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    genre VARCHAR(100),
-    release_year INT,
-    imdb_id VARCHAR(20),
-    metadata JSON,
+    movie_id INT PRIMARY KEY,  -- ID from CSV, not auto-increment
+    title VARCHAR(500) NOT NULL,
+    imdb_rating DECIMAL(3, 1),
+    genres VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -57,6 +57,6 @@ CREATE INDEX idx_user_preferences_user_id ON user_preferences(user_id);
 CREATE INDEX idx_user_preferences_movie_id ON user_preferences(movie_id);
 CREATE INDEX idx_recommendations_user_id ON recommendations(user_id);
 CREATE INDEX idx_recommendations_score ON recommendations(user_id, score DESC);
-CREATE INDEX idx_movies_genre ON movies(genre);
-CREATE INDEX idx_movies_title ON movies(title);
+CREATE INDEX idx_movies_genres ON movies(genres(255));
+CREATE INDEX idx_movies_title ON movies(title(255));
 
