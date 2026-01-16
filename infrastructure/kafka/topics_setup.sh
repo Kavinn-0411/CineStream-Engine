@@ -10,7 +10,7 @@ sleep 10
 
 # Create movie-logs topic
 echo "Creating movie-logs topic..."
-docker exec cinestream-kafka kafka-topics --create \
+sudo docker exec cinestream-kafka kafka-topics --create \
   --bootstrap-server localhost:9092 \
   --topic movie-logs \
   --partitions 3 \
@@ -19,7 +19,7 @@ docker exec cinestream-kafka kafka-topics --create \
 
 # Create reviews topic
 echo "Creating reviews topic..."
-docker exec cinestream-kafka kafka-topics --create \
+sudo docker exec cinestream-kafka kafka-topics --create \
   --bootstrap-server localhost:9092 \
   --topic reviews \
   --partitions 3 \
@@ -28,5 +28,5 @@ docker exec cinestream-kafka kafka-topics --create \
 
 echo "Kafka topics created successfully!"
 echo "Listing all topics:"
-docker exec cinestream-kafka kafka-topics --list --bootstrap-server localhost:9092
+sudo docker exec cinestream-kafka kafka-topics --list --bootstrap-server localhost:9092
 

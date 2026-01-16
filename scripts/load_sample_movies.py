@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
 """
-Script to load movies from CSV file into MySQL database.
-Expects CSV with columns: id, title, imdb_rating, genres
+Script to load first 1000 movies from CSV file into MySQL database.
+Prompts for database connection details interactively.
 """
 
 import csv
-import os
 import sys
 import mysql.connector
 from mysql.connector import Error
-from typing import Optional
-import argparse
+import getpass
 
 
-def get_db_connection() -> Optional[mysql.connector.MySQLConnection]:
-    """Create and return MySQL database connection."""
+def get_db_connection_interactive():
+    """Prompt user for database connection details."""
+    print("\n=== MySQL Database Connection ===")
+    host = "localhost"
+    port = "3307"
+    database = "cinestream"
+    user = "cinestream_user"
+    password = "cinestream_password"
+    
     try:
         connection = mysql.connector.connect(
-            host=os.getenv('MYSQL_HOST', 'localhost'),
-            port=int(os.getenv('MYSQL_PORT', 3306)),
-            database=os.getenv('MYSQL_DB', 'cinestream'),
-            user=os.getenv('MYSQL_USER', 'cinestream_user'),
-            password=os.getenv('MYSQL_PASSWORD', 'cinestream_password')
+            host=host,
+            port=int(port),
+            database=database,
+            user=user,
+            password=password
         )
+        print(f"✓ Connected to MySQL database '{database}' at {host}:{port}\n")
         return connection
     except Error as e:
-        print(f"Error connecting to MySQL: {e}")
+        print(f"✗ Error connecting to MySQL: {e}")
         return None
 
 
@@ -36,7 +42,6 @@ def parse_csv_columns(header_row: list) -> dict:
     """
     header_lower = [col.strip().lower() for col in header_row]
     
-    # Try to find columns with various possible names
     column_map = {}
     
     # Find ID column
@@ -72,20 +77,22 @@ def parse_csv_columns(header_row: list) -> dict:
     return column_map
 
 
-def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, int]:
-    """
-    Load movies from CSV file into MySQL database.
-    Returns (success_count, error_count)
-    """
-    connection = get_db_connection()
+def load_sample_movies(csv_path: str, max_records: int = 1000):
+    """Load first N movies from CSV file into MySQL database."""
+    
+    # Get database connection
+    connection = get_db_connection_interactive()
     if not connection:
-        return 0, 0
+        return False
     
     cursor = connection.cursor()
     success_count = 0
     error_count = 0
     
     try:
+        print(f"Reading CSV file: {csv_path}")
+        print(f"Loading first {max_records} records...\n")
+        
         # Read CSV file
         with open(csv_path, 'r', encoding='utf-8', errors='ignore') as csvfile:
             # Try to detect delimiter
@@ -100,10 +107,14 @@ def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, in
             header = next(reader)
             column_map = parse_csv_columns(header)
             
-            print(f"Found columns: id={column_map['id']}, title={column_map['title']}, "
-                  f"imdb_rating={column_map['imdb_rating']}, genres={column_map['genres']}")
+            print(f"Found columns:")
+            print(f"  - ID: column {column_map['id']} ({header[column_map['id']]})")
+            print(f"  - Title: column {column_map['title']} ({header[column_map['title']]})")
+            print(f"  - IMDb Rating: column {column_map['imdb_rating']} ({header[column_map['imdb_rating']]})")
+            print(f"  - Genres: column {column_map['genres']} ({header[column_map['genres']]})")
+            print()
             
-            # Prepare insert/update query
+            # Prepare insert query
             insert_query = """
                 INSERT INTO movies (movie_id, title, imdb_rating, genres)
                 VALUES (%s, %s, %s, %s)
@@ -115,8 +126,13 @@ def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, in
             """
             
             batch = []
+            records_processed = 0
             
             for row_num, row in enumerate(reader, start=2):  # Start at 2 (1 is header)
+                # Stop after max_records
+                if records_processed >= max_records:
+                    break
+                
                 try:
                     # Extract values based on column mapping
                     movie_id = int(row[column_map['id']])
@@ -129,6 +145,9 @@ def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, in
                     if imdb_rating_str:
                         try:
                             imdb_rating = float(imdb_rating_str)
+                            # Validate rating range (0-10)
+                            if imdb_rating < 0 or imdb_rating > 10:
+                                imdb_rating = None
                         except ValueError:
                             pass
                     
@@ -139,17 +158,18 @@ def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, in
                         continue
                     
                     batch.append((movie_id, title, imdb_rating, genres))
+                    records_processed += 1
                     
-                    # Insert in batches for better performance
-                    if len(batch) >= batch_size:
+                    # Insert in batches of 100
+                    if len(batch) >= 100:
                         cursor.executemany(insert_query, batch)
                         connection.commit()
                         success_count += len(batch)
-                        print(f"Loaded {success_count} movies...")
+                        print(f"  Loaded {success_count}/{max_records} movies...", end='\r')
                         batch = []
                 
                 except (ValueError, IndexError) as e:
-                    print(f"Error processing row {row_num}: {e}")
+                    print(f"\nWarning: Row {row_num} - Error: {e}, skipping")
                     error_count += 1
                     continue
             
@@ -159,66 +179,83 @@ def load_movies_from_csv(csv_path: str, batch_size: int = 1000) -> tuple[int, in
                 connection.commit()
                 success_count += len(batch)
         
-        print(f"\nSuccessfully loaded {success_count} movies")
+        print()  # New line after progress updates
+        print(f"\n{'='*50}")
+        print(f"✓ Successfully loaded {success_count} movies")
         if error_count > 0:
-            print(f"Skipped {error_count} rows due to errors")
+            print(f"⚠ Skipped {error_count} rows due to errors")
+        print(f"{'='*50}\n")
+        
+        # Show sample of loaded data
+        cursor.execute("SELECT COUNT(*) FROM movies")
+        total_in_db = cursor.fetchone()[0]
+        print(f"Total movies in database: {total_in_db}")
+        
+        cursor.execute("SELECT movie_id, title, imdb_rating, genres FROM movies LIMIT 5")
+        sample = cursor.fetchall()
+        if sample:
+            print("\nSample of loaded movies:")
+            print("-" * 80)
+            for movie_id, title, rating, genres in sample:
+                rating_str = f"{rating:.1f}" if rating else "N/A"
+                genres_str = genres[:50] + "..." if genres and len(genres) > 50 else (genres or "N/A")
+                print(f"ID: {movie_id:5} | {title[:40]:40} | Rating: {rating_str:4} | {genres_str}")
+            print("-" * 80)
+        
+        return True
     
     except FileNotFoundError:
-        print(f"Error: CSV file not found: {csv_path}")
-        error_count = 1
+        print(f"\n✗ Error: CSV file not found: {csv_path}")
+        return False
     except Exception as e:
-        print(f"Error loading movies: {e}")
-        error_count += 1
+        print(f"\n✗ Error loading movies: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
     finally:
         cursor.close()
         connection.close()
-    
-    return success_count, error_count
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Load movies from CSV into MySQL database')
-    parser.add_argument('--csv', type=str, required=True,
-                       help='Path to movies CSV file')
-    parser.add_argument('--batch-size', type=int, default=1000,
-                       help='Batch size for database inserts (default: 1000)')
-    parser.add_argument('--host', type=str,
-                       help='MySQL host (default: from env or localhost)')
-    parser.add_argument('--port', type=int,
-                       help='MySQL port (default: from env or 3306)')
-    parser.add_argument('--user', type=str,
-                       help='MySQL user (default: from env or cinestream_user)')
-    parser.add_argument('--password', type=str,
-                       help='MySQL password (default: from env or cinestream_password)')
-    parser.add_argument('--database', type=str,
-                       help='MySQL database (default: from env or cinestream)')
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description='Load first 1000 movies from CSV into MySQL database'
+    )
+    parser.add_argument(
+        '--csv',
+        type=str,
+        default='data/movies.csv',
+        help='Path to movies CSV file (default: data/movies.csv)'
+    )
+    parser.add_argument(
+        '--max-records',
+        type=int,
+        default=1000,
+        help='Maximum number of records to load (default: 1000)'
+    )
     
     args = parser.parse_args()
     
-    # Override env vars if CLI args provided
-    if args.host:
-        os.environ['MYSQL_HOST'] = args.host
-    if args.port:
-        os.environ['MYSQL_PORT'] = str(args.port)
-    if args.user:
-        os.environ['MYSQL_USER'] = args.user
-    if args.password:
-        os.environ['MYSQL_PASSWORD'] = args.password
-    if args.database:
-        os.environ['MYSQL_DB'] = args.database
-    
+    import os
     if not os.path.exists(args.csv):
-        print(f"Error: CSV file not found: {args.csv}")
+        print(f"\n✗ Error: CSV file not found: {args.csv}")
+        print(f"\nPlease provide the path to your movies CSV file:")
+        print(f"  python scripts/load_sample_movies.py --csv <path_to_your_csv_file>")
         sys.exit(1)
     
-    print(f"Loading movies from {args.csv}...")
-    success, errors = load_movies_from_csv(args.csv, args.batch_size)
+    print("="*50)
+    print("CineStream - Sample Movie Data Loader")
+    print("="*50)
     
-    if success > 0:
-        print(f"\n✓ Successfully loaded {success} movies into database")
+    success = load_sample_movies(args.csv, args.max_records)
+    
+    if success:
+        print("\n✓ Sample data loaded successfully!")
         sys.exit(0)
     else:
-        print("\n✗ Failed to load any movies")
+        print("\n✗ Failed to load sample data")
         sys.exit(1)
 
 
