@@ -85,11 +85,14 @@ def initialize_mongodb():
     try:
         # Build connection string
         if settings.MONGODB_USER and settings.MONGODB_PASSWORD:
+            # Connect with authentication
             connection_string = (
                 f"mongodb://{settings.MONGODB_USER}:{settings.MONGODB_PASSWORD}@"
                 f"{settings.MONGODB_HOST}:{settings.MONGODB_PORT}/"
+                f"{settings.MONGODB_DB}?authSource={settings.MONGODB_DB}"
             )
         else:
+            # Connect without authentication (for development)
             connection_string = f"mongodb://{settings.MONGODB_HOST}:{settings.MONGODB_PORT}/"
         
         _mongo_client = MongoClient(
@@ -105,6 +108,9 @@ def initialize_mongodb():
         return True
     except ConnectionFailure as e:
         logger.error(f"Failed to initialize MongoDB connection: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"MongoDB connection error: {e}")
         return False
 
 

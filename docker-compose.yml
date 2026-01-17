@@ -78,7 +78,7 @@ services:
     container_name: cinestream-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: cinestream_admin
-      MONGO_INITDB_ROOT_PASSWORD: cinestream2026
+      MONGO_INITDB_ROOT_PASSWORD: cinestream_admin_password
       MONGO_INITDB_DATABASE: cinestream_logs
     ports:
       - "27017:27017"
