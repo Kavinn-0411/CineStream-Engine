@@ -1,1 +1,1 @@
-# API Package
+"""CineStream API package."""

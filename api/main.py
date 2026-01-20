@@ -3,7 +3,7 @@ CineStream API - Main Application
 Real-time movie recommendation engine backend
 """
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -15,8 +15,19 @@ from api.database.connection import (
     initialize_mongodb,
     test_mysql_connection,
     test_mongodb_connection,
-    close_connections
+    close_connections,
 )
+from api.kafka.producer import close_kafka_producer
+from api.processor import (
+    create_movie_processor,
+    create_review_processor,
+    delete_movie_processor,
+    get_movie_processor,
+    list_movies_processor,
+    update_movie_processor,
+)
+from api.schemas.movie import MovieCreate, MovieListResponse, MovieResponse, MovieUpdate
+from api.schemas.review import ReviewCreate, ReviewCreateResponse
 from api.utils.logger import setup_logging
 
 
@@ -55,6 +66,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down CineStream API...")
+    close_kafka_producer()
     close_connections()
     logger.info("Shutdown complete")
 
@@ -192,6 +204,67 @@ def database_status():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"error": str(e)}
         )
+
+
+# Movie CRUD endpoints (Phase 2)
+@app.post(
+    "/api/v1/movies",
+    tags=["Movies"],
+    response_model=MovieResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_movie_endpoint(payload: MovieCreate):
+    return create_movie_processor(payload)
+
+
+@app.get(
+    "/api/v1/movies/{movie_id}",
+    tags=["Movies"],
+    response_model=MovieResponse,
+)
+def get_movie_endpoint(movie_id: int):
+    return get_movie_processor(movie_id)
+
+
+@app.get(
+    "/api/v1/movies",
+    tags=["Movies"],
+    response_model=MovieListResponse,
+)
+def list_movies_endpoint(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    search: str | None = None,
+    genre: str | None = None,
+):
+    return list_movies_processor(page=page, size=size, search=search, genre=genre)
+
+
+@app.put(
+    "/api/v1/movies/{movie_id}",
+    tags=["Movies"],
+    response_model=MovieResponse,
+)
+def update_movie_endpoint(movie_id: int, payload: MovieUpdate):
+    return update_movie_processor(movie_id, payload)
+
+
+@app.delete(
+    "/api/v1/movies/{movie_id}",
+    tags=["Movies"],
+)
+def delete_movie_endpoint(movie_id: int):
+    return delete_movie_processor(movie_id)
+
+
+@app.post(
+    "/api/v1/reviews",
+    tags=["Reviews"],
+    response_model=ReviewCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_review_endpoint(payload: ReviewCreate):
+    return create_review_processor(payload)
 
 
 if __name__ == "__main__":
