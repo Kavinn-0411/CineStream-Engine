@@ -14,6 +14,14 @@ updates `user_preferences`, and writes candidate rows to `recommendations` in My
 
 ## Run
 
+Install **PyArrow** (required for `mapInPandas` sentiment scoring):
+
+```bash
+pip install pyarrow
+```
+
+Then:
+
 ```bash
 python -m streaming.main
 ```

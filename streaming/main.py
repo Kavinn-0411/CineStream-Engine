@@ -2,6 +2,8 @@
 reviews topic -> model sentiment -> MySQL user_preferences + recommendations upsert.
 """
 
+import pyarrow  # noqa: F401 — required for mapInPandas / Arrow (pip install pyarrow)
+
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructField, StructType, StringType, IntegerType
@@ -13,11 +15,14 @@ from streaming.writers.mysql_writer import write_feedback_batch, write_recommend
 
 
 def build_spark_session(cfg: StreamingConfig) -> SparkSession:
+    # mapInPandas / Arrow needs PyArrow installed: pip install pyarrow
     return (
         SparkSession.builder.appName(cfg.app_name)
         .master(cfg.spark_master)
         .config("spark.jars.packages", cfg.spark_packages)
         .config("spark.sql.shuffle.partitions", "2")
+        .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+        .config("spark.sql.execution.arrow.maxRecordsPerBatch", "1000")
         .getOrCreate()
     )
 
@@ -54,7 +59,7 @@ def main() -> None:
         .filter(F.col("user_id").isNotNull() & F.col("movie_id").isNotNull() & F.col("review_text").isNotNull())
     )
 
-    scored = add_sentiment_columns(parsed)
+    scored = add_sentiment_columns(parsed, sentiment_partitions=cfg.sentiment_inference_partitions)
 
     def _foreach_batch(df, _batch_id):
         if df.count() == 0:

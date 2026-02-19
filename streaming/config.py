@@ -16,6 +16,9 @@ class StreamingConfig:
     kafka_topic_reviews: str = os.getenv("KAFKA_TOPIC_REVIEWS", "reviews")
     checkpoint_location: str = os.getenv("SPARK_CHECKPOINT_LOCATION", "./checkpoints/reviews_stream")
     trigger_seconds: int = int(os.getenv("SPARK_BATCH_INTERVAL", "10"))
+    # mapInPandas runs one Python worker per partition; each calls pipeline() once.
+    # Default 1 = one model load per micro-batch (good for local). Raise for parallel inference.
+    sentiment_inference_partitions: int = int(os.getenv("SENTIMENT_INFERENCE_PARTITIONS", "1"))
     spark_packages: str = os.getenv(
         "SPARK_PACKAGES",
         "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,com.mysql:mysql-connector-j:8.3.0",
