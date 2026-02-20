@@ -23,11 +23,18 @@ from api.processor import (
     create_review_processor,
     delete_movie_processor,
     get_movie_processor,
+    get_recommendations_processor,
+    get_user_by_id_processor,
+    get_user_by_username_processor,
     list_movies_processor,
+    list_users_processor,
+    register_user_processor,
     update_movie_processor,
 )
 from api.schemas.movie import MovieCreate, MovieListResponse, MovieResponse, MovieUpdate
+from api.schemas.recommendation import RecommendationListResponse
 from api.schemas.review import ReviewCreate, ReviewCreateResponse
+from api.schemas.user import UserCreate, UserListResponse, UserResponse
 from api.utils.logger import setup_logging
 
 
@@ -82,8 +89,11 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -206,6 +216,50 @@ def database_status():
         )
 
 
+# Users (multi-user UI)
+@app.post(
+    "/api/v1/users",
+    tags=["Users"],
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_user_endpoint(payload: UserCreate):
+    """Register a new user (username + email must be unique)."""
+    return register_user_processor(payload)
+
+
+@app.get(
+    "/api/v1/users/by-username/{username}",
+    tags=["Users"],
+    response_model=UserResponse,
+)
+def get_user_by_username_endpoint(username: str):
+    """Look up user by username (for login / session bootstrap)."""
+    return get_user_by_username_processor(username)
+
+
+@app.get(
+    "/api/v1/users/{user_id}",
+    tags=["Users"],
+    response_model=UserResponse,
+)
+def get_user_by_id_endpoint(user_id: int):
+    return get_user_by_id_processor(user_id)
+
+
+@app.get(
+    "/api/v1/users",
+    tags=["Users"],
+    response_model=UserListResponse,
+)
+def list_users_endpoint(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+):
+    offset = (page - 1) * size
+    return list_users_processor(limit=size, offset=offset)
+
+
 # Movie CRUD endpoints (Phase 2)
 @app.post(
     "/api/v1/movies",
@@ -265,6 +319,27 @@ def delete_movie_endpoint(movie_id: int):
 )
 def create_review_endpoint(payload: ReviewCreate):
     return create_review_processor(payload)
+
+
+@app.get(
+    "/api/v1/recommendations/{user_id}",
+    tags=["Recommendations"],
+    response_model=RecommendationListResponse,
+)
+def get_recommendations_endpoint(
+    user_id: int,
+    limit: int = Query(
+        default=settings.RECOMMENDATION_TOP_N,
+        ge=1,
+        le=50,
+        description="Max items to return",
+    ),
+):
+    """
+    Return stored recommendations for a user (populated by the PySpark streaming job).
+    Submit reviews first and wait for the next micro-batch before expecting rows.
+    """
+    return get_recommendations_processor(user_id, limit=limit)
 
 
 if __name__ == "__main__":

@@ -14,10 +14,21 @@ from api.crud.movie_crud import (
     list_movies,
     update_movie,
 )
+from api.crud.recommendation_crud import list_recommendations_for_user
 from api.crud.review_crud import insert_review_raw, movie_exists, user_exists
+from api.crud.user_crud import (
+    count_users,
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    get_user_by_username,
+    list_users,
+)
 from api.database.connection import get_mysql_connection
 from api.schemas.movie import MovieCreate, MovieListResponse, MovieResponse, MovieUpdate
+from api.schemas.recommendation import RecommendationItem, RecommendationListResponse
 from api.schemas.review import ReviewCreate, ReviewCreateResponse
+from api.schemas.user import UserCreate, UserListResponse, UserResponse
 from api.kafka.producer import publish_review_event
 
 
@@ -151,5 +162,102 @@ def create_review_processor(payload: ReviewCreate) -> ReviewCreateResponse:
             },
         )
         return ReviewCreateResponse(**row)
+    finally:
+        conn.close()
+
+
+def get_recommendations_processor(user_id: int, limit: int) -> RecommendationListResponse:
+    """Read precomputed recommendations from MySQL (written by PySpark)."""
+    conn = get_mysql_connection()
+    try:
+        if not user_exists(conn, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with id {user_id} not found.",
+            )
+        cap = min(limit, 50)
+        rows = list_recommendations_for_user(conn, user_id, limit=cap)
+        return RecommendationListResponse(
+            user_id=user_id,
+            items=[RecommendationItem(**row) for row in rows],
+            total=len(rows),
+        )
+    finally:
+        conn.close()
+
+
+def register_user_processor(payload: UserCreate) -> UserResponse:
+    """Create a new user; username and email must be unique."""
+    conn = get_mysql_connection()
+    try:
+        if get_user_by_username(conn, payload.username):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username already taken.",
+            )
+        if get_user_by_email(conn, payload.email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered.",
+            )
+        try:
+            row = create_user(conn, payload.username, payload.email)
+        except MySQLError as exc:
+            if getattr(exc, "errno", None) == 1062:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Username or email already exists.",
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user.",
+            )
+        return UserResponse(**row)
+    finally:
+        conn.close()
+
+
+def get_user_by_username_processor(username: str) -> UserResponse:
+    conn = get_mysql_connection()
+    try:
+        row = get_user_by_username(conn, username)
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User '{username}' not found.",
+            )
+        return UserResponse(**row)
+    finally:
+        conn.close()
+
+
+def get_user_by_id_processor(user_id: int) -> UserResponse:
+    conn = get_mysql_connection()
+    try:
+        row = get_user_by_id(conn, user_id)
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with id {user_id} not found.",
+            )
+        return UserResponse(**row)
+    finally:
+        conn.close()
+
+
+def list_users_processor(limit: int = 50, offset: int = 0) -> UserListResponse:
+    conn = get_mysql_connection()
+    try:
+        rows = list_users(conn, limit=min(limit, 100), offset=max(offset, 0))
+        total = count_users(conn)
+        return UserListResponse(
+            items=[UserResponse(**r) for r in rows],
+            total=total,
+        )
     finally:
         conn.close()

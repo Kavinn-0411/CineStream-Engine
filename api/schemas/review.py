@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class ReviewCreate(BaseModel):
-    user_id: int = Field(default=1, gt=0, description="User id (default 1 for local testing)")
+    user_id: int = Field(..., gt=0, description="Registered user id")
     movie_id: int = Field(..., gt=0, description="Movie id from movies table")
     review_text: str = Field(..., min_length=3, max_length=5000)
 
