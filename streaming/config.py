@@ -2,10 +2,16 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _default_nb_model_path() -> str:
+    root = Path(__file__).resolve().parents[1]
+    return str(root / "models" / "artifacts" / "recommendation_mnb.joblib")
 
 
 @dataclass
@@ -29,6 +35,13 @@ class StreamingConfig:
     mysql_db: str = os.getenv("MYSQL_DB", "cinestream")
     mysql_user: str = os.getenv("MYSQL_USER", "cinestream_user")
     mysql_password: str = os.getenv("MYSQL_PASSWORD", "cinestream_password")
+
+    # Multinomial NB recommender (train with scripts/train_recommendation_nb.py).
+    # If file exists, streaming uses NB scores; otherwise heuristic (see streaming.main).
+    recommendation_nb_model_path: str = os.getenv(
+        "RECOMMENDATION_MNB_MODEL_PATH",
+        _default_nb_model_path(),
+    )
 
     @property
     def mysql_jdbc_url(self) -> str:

@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 
 class ReviewCreate(BaseModel):
-    user_id: int = Field(..., gt=0, description="Registered user id")
+    """Authenticated review body — user_id comes from the JWT."""
+
     movie_id: int = Field(..., gt=0, description="Movie id from movies table")
     review_text: str = Field(..., min_length=3, max_length=5000)
 

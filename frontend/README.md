@@ -17,7 +17,7 @@ If the API runs elsewhere, copy `.env.example` to `.env` and set `VITE_API_BASE_
 ## Flow
 
 1. **Register** or **Sign in** (username lookup).
-2. **Home** — shows recommendations from `GET /api/v1/recommendations/{user_id}` when Spark has written rows; otherwise the “Movie Buff community” message.
-3. **Search & review** (`/dashboard`) — type a title to live-search movies (`GET /api/v1/movies?search=...`), pick one, then `POST /api/v1/reviews` with your `user_id`.
+2. **Home** — `GET /api/v1/me/recommendations` (Bearer) when Spark has written rows; otherwise the welcome message.
+3. **Search & review** (`/dashboard`) — live-search movies, then `POST /api/v1/reviews` with JWT only (`movie_id` + `review_text`).
 
-Auth is **sessionless**: user id/username are stored in `localStorage` (demo only).
+Auth: **JWT** from `POST /api/v1/auth/login` or `/auth/register`, stored in `localStorage` under `cinestream_auth` with the `Authorization: Bearer` header on API calls. Reviews use `POST /api/v1/reviews` with **no** `user_id` in the body (it comes from the token). Home loads `GET /api/v1/me/recommendations`.

@@ -3,6 +3,7 @@ fastapi
 uvicorn
 pydantic
 pydantic-settings
+email-validator>=2.0.0
 
 # Database
 mysql-connector-python
@@ -22,7 +23,12 @@ scikit-learn
 # Data Processing
 pandas
 numpy
+pyarrow>=14.0.0
 
 # Utilities
 python-dotenv==1.0.0
+
+# Auth
+bcrypt>=4.0.0
+python-jose[cryptography]>=3.3.0
 

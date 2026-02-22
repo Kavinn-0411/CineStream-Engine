@@ -16,11 +16,12 @@ CREATE TABLE IF NOT EXISTS movies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Users table
+-- Users table (password_hash = bcrypt)
 CREATE TABLE IF NOT EXISTS users (
     user_id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(100) UNIQUE,
     email VARCHAR(255) UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -79,11 +80,16 @@ CREATE INDEX idx_reviews_raw_movie_id ON reviews_raw(movie_id);
 CREATE INDEX idx_reviews_raw_event_time ON reviews_raw(event_time DESC);
 CREATE INDEX idx_reviews_raw_kafka_published ON reviews_raw(kafka_published);
 
--- Seed one test user for early local development.
--- The schema supports many users; this seed simply makes testing easier.
-INSERT INTO users (user_id, username, email)
-VALUES (1, 'test_user_1', 'test_user_1@cinestream.local')
+-- Seed one test user for early local development (password: testpass123).
+INSERT INTO users (user_id, username, email, password_hash)
+VALUES (
+    1,
+    'test_user_1',
+    'test_user_1@cinestream.local',
+    '$2b$12$tqQqKmF/0jYb4UpFziOiguwtsegOIuPtVEWBctiR8BbdHVNIfLrI2'
+)
 ON DUPLICATE KEY UPDATE
     username = VALUES(username),
-    email = VALUES(email);
+    email = VALUES(email),
+    password_hash = VALUES(password_hash);
 

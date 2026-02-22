@@ -1,14 +1,14 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
-import { getStoredUser, setStoredUser } from './api/client'
+import { getStoredUser, clearAuth } from './api/client'
 
 const route = useRoute()
 const router = useRouter()
 const user = computed(() => getStoredUser())
 
 function logout() {
-  setStoredUser(null)
+  clearAuth()
   router.push({ name: 'login' })
 }
 </script>

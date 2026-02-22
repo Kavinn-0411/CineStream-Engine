@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, setStoredUser } from '../api/client'
+import { api, setAuth } from '../api/client'
 
 const router = useRouter()
 const route = useRoute()
@@ -9,29 +9,29 @@ const route = useRoute()
 const mode = ref('signin')
 const username = ref('')
 const email = ref('')
+const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
 async function signIn() {
   error.value = ''
-  if (!username.value.trim()) {
-    error.value = 'Enter your username.'
+  if (!username.value.trim() || !password.value) {
+    error.value = 'Enter username and password.'
     return
   }
   loading.value = true
   try {
-    const { data } = await api.get(
-      `/api/v1/users/by-username/${encodeURIComponent(username.value.trim())}`,
-    )
-    setStoredUser(data)
+    const { data } = await api.post('/api/v1/auth/login', {
+      username: username.value.trim(),
+      password: password.value,
+    })
+    setAuth(data)
     const redirect = route.query.redirect || '/'
     router.push(typeof redirect === 'string' ? redirect : '/')
   } catch (e) {
-    if (e.response?.status === 404) {
-      error.value = 'No account with that username. Register below.'
-    } else {
-      error.value = e.response?.data?.detail || e.message || 'Sign in failed.'
-    }
+    const d = e.response?.data?.detail
+    error.value =
+      typeof d === 'string' ? d : d ? JSON.stringify(d) : e.message || 'Sign in failed.'
   } finally {
     loading.value = false
   }
@@ -39,26 +39,27 @@ async function signIn() {
 
 async function register() {
   error.value = ''
-  if (!username.value.trim() || !email.value.trim()) {
-    error.value = 'Username and email are required.'
+  if (!username.value.trim() || !email.value.trim() || !password.value) {
+    error.value = 'Username, email, and password are required.'
+    return
+  }
+  if (password.value.length < 8) {
+    error.value = 'Password must be at least 8 characters.'
     return
   }
   loading.value = true
   try {
-    const { data } = await api.post('/api/v1/users', {
+    const { data } = await api.post('/api/v1/auth/register', {
       username: username.value.trim(),
       email: email.value.trim(),
+      password: password.value,
     })
-    setStoredUser(data)
+    setAuth(data)
     router.push('/')
   } catch (e) {
+    const d = e.response?.data?.detail
     error.value =
-      e.response?.data?.detail ||
-      (typeof e.response?.data?.detail === 'object'
-        ? JSON.stringify(e.response.data.detail)
-        : null) ||
-      e.message ||
-      'Registration failed.'
+      typeof d === 'string' ? d : d ? JSON.stringify(d) : e.message || 'Registration failed.'
   } finally {
     loading.value = false
   }
@@ -69,8 +70,8 @@ async function register() {
   <div class="page">
     <h1>Join the community</h1>
     <p class="lead muted">
-      Create an account or sign in with your username. Your dashboard is where you search films and
-      post reviews — recommendations on the home page update after the streaming pipeline runs.
+      Sign in with your username and password, or create an account. JWT is stored in the browser for
+      this demo — use a strong <code>JWT_SECRET_KEY</code> in production.
     </p>
 
     <div class="tabs">
@@ -104,6 +105,16 @@ async function register() {
           placeholder="you@example.com"
         />
       </label>
+      <label class="field">
+        <span>Password</span>
+        <input
+          v-model="password"
+          type="password"
+          :autocomplete="mode === 'signin' ? 'current-password' : 'new-password'"
+          placeholder="••••••••"
+        />
+      </label>
+      <p v-if="mode === 'register'" class="muted tiny">Minimum 8 characters for new passwords.</p>
       <p v-if="error" class="error-msg">{{ error }}</p>
       <button
         type="button"
@@ -123,8 +134,15 @@ async function register() {
   font-size: 2rem;
   margin: 0 0 0.5rem;
 }
+.lead code {
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+}
 .lead {
-  max-width: 36rem;
+  max-width: 38rem;
   margin-bottom: 1.5rem;
 }
 .tabs {
@@ -162,6 +180,10 @@ async function register() {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--muted);
+}
+.tiny {
+  font-size: 0.8rem;
+  margin: -0.5rem 0 0;
 }
 .submit {
   margin-top: 0.25rem;

@@ -12,6 +12,16 @@ updates `user_preferences`, and writes candidate rows to `recommendations` in My
 5. Upserts `(user_id, movie_id)` into MySQL `user_preferences`
 6. Builds top-N recommendations and upserts MySQL `recommendations`
 
+### Recommendation scoring (Multinomial NB vs heuristic)
+
+If `RECOMMENDATION_MNB_MODEL_PATH` (default: `models/artifacts/recommendation_mnb.joblib`) **exists**, each micro-batch scores candidates with a **sklearn** pipeline (`TfidfVectorizer` + `MultinomialNB`) trained on `user_preferences` joined to `movies` (liked = rating ≥ 3). If the file is missing, NB errors, or NB returns no rows, the job **falls back** to the genre + IMDb heuristic in `recommendation_processor.py`.
+
+Train the model (MySQL must have `user_preferences` rows — submit a few reviews first, or the script augments from `movies`):
+
+```bash
+python scripts/train_recommendation_nb.py
+```
+
 ## Run
 
 Install **PyArrow** (required for `mapInPandas` sentiment scoring):
@@ -47,6 +57,5 @@ LIMIT 20;
 
 ## Next upgrade
 
-- Replace per-row UDF scoring with batched pandas UDF for performance
-- Add collaborative-filtering model score blending in recommendation score
+- Per-user or matrix-factorization models; blend NB score with CF
 - Add MongoDB processing logs

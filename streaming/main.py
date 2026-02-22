@@ -2,6 +2,9 @@
 reviews topic -> model sentiment -> MySQL user_preferences + recommendations upsert.
 """
 
+import logging
+from pathlib import Path
+
 import pyarrow  # noqa: F401 — required for mapInPandas / Arrow (pip install pyarrow)
 
 from pyspark.sql import SparkSession
@@ -10,8 +13,11 @@ from pyspark.sql.types import StructField, StructType, StringType, IntegerType
 
 from streaming.config import StreamingConfig
 from streaming.processors.sentiment_processor import add_sentiment_columns
+from streaming.processors.recommendation_nb import build_nb_recommendations
 from streaming.processors.recommendation_processor import build_candidate_recommendations
 from streaming.writers.mysql_writer import write_feedback_batch, write_recommendations_batch
+
+logger = logging.getLogger(__name__)
 
 
 def build_spark_session(cfg: StreamingConfig) -> SparkSession:
@@ -28,6 +34,7 @@ def build_spark_session(cfg: StreamingConfig) -> SparkSession:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = StreamingConfig()
     spark = build_spark_session(cfg)
     spark.sparkContext.setLogLevel("WARN")
@@ -65,9 +72,34 @@ def main() -> None:
         if df.count() == 0:
             return
         write_feedback_batch(df, cfg)
-        recommendations_df = build_candidate_recommendations(
-            scored_reviews_df=df, cfg=cfg, top_n=10
-        )
+        nb_path = Path(cfg.recommendation_nb_model_path)
+        if nb_path.is_file():
+            try:
+                recommendations_df = build_nb_recommendations(
+                    scored_reviews_df=df, cfg=cfg, top_n=10
+                )
+                if recommendations_df.limit(1).count() > 0:
+                    logger.info("Recommendations: Multinomial NB (%s)", nb_path)
+                else:
+                    logger.warning(
+                        "NB recommender returned no rows; falling back to heuristic."
+                    )
+                    recommendations_df = build_candidate_recommendations(
+                        scored_reviews_df=df, cfg=cfg, top_n=10
+                    )
+            except Exception as exc:
+                logger.exception("NB recommender failed (%s); using heuristic.", exc)
+                recommendations_df = build_candidate_recommendations(
+                    scored_reviews_df=df, cfg=cfg, top_n=10
+                )
+        else:
+            logger.info(
+                "Recommendations: heuristic (no NB model at %s — run scripts/train_recommendation_nb.py)",
+                nb_path,
+            )
+            recommendations_df = build_candidate_recommendations(
+                scored_reviews_df=df, cfg=cfg, top_n=10
+            )
         write_recommendations_batch(recommendations_df, cfg)
 
     query = (

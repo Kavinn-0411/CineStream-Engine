@@ -18,7 +18,7 @@ async function loadRecommendations() {
   loading.value = true
   error.value = ''
   try {
-    const { data } = await api.get(`/api/v1/recommendations/${user.value.user_id}`, {
+    const { data } = await api.get('/api/v1/me/recommendations', {
       params: { limit: 12 },
     })
     items.value = data.items || []

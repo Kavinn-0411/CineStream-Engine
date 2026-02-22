@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getStoredUser } from '../api/client'
+import { getAccessToken } from '../api/client'
 
 const routes = [
   {
@@ -27,11 +27,11 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const user = getStoredUser()
-  if (to.meta.requiresAuth && !user) {
+  const token = getAccessToken()
+  if (to.meta.requiresAuth && !token) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (to.meta.guestOnly && user) {
+  if (to.meta.guestOnly && token) {
     return { name: 'home' }
   }
   return true

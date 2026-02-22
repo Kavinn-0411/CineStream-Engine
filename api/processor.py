@@ -22,13 +22,22 @@ from api.crud.user_crud import (
     get_user_by_email,
     get_user_by_id,
     get_user_by_username,
+    get_user_with_password_by_username,
     list_users,
 )
 from api.database.connection import get_mysql_connection
 from api.schemas.movie import MovieCreate, MovieListResponse, MovieResponse, MovieUpdate
 from api.schemas.recommendation import RecommendationItem, RecommendationListResponse
 from api.schemas.review import ReviewCreate, ReviewCreateResponse
-from api.schemas.user import UserCreate, UserListResponse, UserResponse
+from api.schemas.user import (
+    TokenResponse,
+    UserCreate,
+    UserListResponse,
+    UserLogin,
+    UserResponse,
+)
+from api.utils.jwt_tokens import create_access_token
+from api.utils.security import hash_password, verify_password
 from api.kafka.producer import publish_review_event
 
 
@@ -113,14 +122,14 @@ def delete_movie_processor(movie_id: int) -> dict[str, str]:
         conn.close()
 
 
-def create_review_processor(payload: ReviewCreate) -> ReviewCreateResponse:
+def create_review_processor(payload: ReviewCreate, user_id: int) -> ReviewCreateResponse:
     conn = get_mysql_connection()
     event_id = str(uuid.uuid4())
     event_time = datetime.now(timezone.utc)
 
     review_event = {
         "event_id": event_id,
-        "user_id": payload.user_id,
+        "user_id": user_id,
         "movie_id": payload.movie_id,
         "review_text": payload.review_text,
         "event_time": event_time.isoformat(),
@@ -128,10 +137,10 @@ def create_review_processor(payload: ReviewCreate) -> ReviewCreateResponse:
     }
 
     try:
-        if not user_exists(conn, payload.user_id):
+        if not user_exists(conn, user_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with id {payload.user_id} not found.",
+                detail=f"User with id {user_id} not found.",
             )
         if not movie_exists(conn, payload.movie_id):
             raise HTTPException(
@@ -153,7 +162,7 @@ def create_review_processor(payload: ReviewCreate) -> ReviewCreateResponse:
             conn,
             {
                 "event_id": event_id,
-                "user_id": payload.user_id,
+                "user_id": user_id,
                 "movie_id": payload.movie_id,
                 "review_text": payload.review_text,
                 "event_time": event_time.replace(tzinfo=None),
@@ -201,7 +210,8 @@ def register_user_processor(payload: UserCreate) -> UserResponse:
                 detail="Email already registered.",
             )
         try:
-            row = create_user(conn, payload.username, payload.email)
+            pwd_hash = hash_password(payload.password)
+            row = create_user(conn, payload.username, payload.email, pwd_hash)
         except MySQLError as exc:
             if getattr(exc, "errno", None) == 1062:
                 raise HTTPException(
@@ -222,18 +232,33 @@ def register_user_processor(payload: UserCreate) -> UserResponse:
         conn.close()
 
 
-def get_user_by_username_processor(username: str) -> UserResponse:
+def login_user_processor(payload: UserLogin) -> TokenResponse:
     conn = get_mysql_connection()
     try:
-        row = get_user_by_username(conn, username)
-        if not row:
+        row = get_user_with_password_by_username(conn, payload.username.strip())
+        if not row or not row.get("password_hash"):
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User '{username}' not found.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
             )
-        return UserResponse(**row)
+        if not verify_password(payload.password, row["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        public = {k: v for k, v in row.items() if k != "password_hash"}
+        user = UserResponse(**public)
+        token = create_access_token(user.user_id)
+        return TokenResponse(access_token=token, user=user)
     finally:
         conn.close()
+
+
+def register_and_token_processor(payload: UserCreate) -> TokenResponse:
+    """Register then return JWT (same as login response)."""
+    user = register_user_processor(payload)
+    token = create_access_token(user.user_id)
+    return TokenResponse(access_token=token, user=user)
 
 
 def get_user_by_id_processor(user_id: int) -> UserResponse:

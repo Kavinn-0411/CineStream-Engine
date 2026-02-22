@@ -100,7 +100,6 @@ async function submitReview() {
   submitError.value = ''
   try {
     await api.post('/api/v1/reviews', {
-      user_id: user.value.user_id,
       movie_id: selectedMovie.value.movie_id,
       review_text: reviewText.value.trim(),
     })

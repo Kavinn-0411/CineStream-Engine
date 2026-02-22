@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     LOG_LEVEL: str = "INFO"
+
+    # JWT (set JWT_SECRET_KEY in production — min 32 random bytes)
+    JWT_SECRET_KEY: str = "dev-only-change-me-use-openssl-rand-hex-32"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
     model_config = ConfigDict(
         env_file=".env",

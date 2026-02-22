@@ -64,6 +64,16 @@ This directory contains infrastructure configuration for the CineStream recommen
 
 ## Database Connections
 
+### MySQL upgrade (JWT + passwords)
+
+If your `users` table was created **before** `password_hash` existed, run once:
+
+```bash
+mysql -h 127.0.0.1 -P 3307 -u cinestream_user -p cinestream < infrastructure/init_db/migrate_users_password_jwt.sql
+```
+
+Seeded user `test_user_1` then uses password **`testpass123`** (bcrypt). New installs pick this up from `init_mysql.sql` automatically.
+
 ### MySQL
 ```
 Host: localhost
