@@ -1,12 +1,18 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { api, getStoredUser } from '../api/client'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
+
+const emit = defineEmits(['review-submitted'])
 
 /** Minimum characters before we hit the movies API (avoids huge result sets on 1 letter). */
 const MIN_QUERY_LEN = 2
 const DEBOUNCE_MS = 320
 
-const user = ref(getStoredUser())
+const user = computed(() => getStoredUser())
 const search = ref('')
 const searching = ref(false)
 const movies = ref([])
@@ -107,6 +113,7 @@ async function submitReview() {
       'Review sent to Kafka. Preferences & recommendations update on the next Spark micro-batch.'
     reviewText.value = ''
     selectedMovie.value = null
+    emit('review-submitted')
   } catch (e) {
     const d = e.response?.data?.detail
     submitError.value = typeof d === 'string' ? d : JSON.stringify(d) || e.message || 'Failed.'
@@ -114,10 +121,6 @@ async function submitReview() {
     submitting.value = false
   }
 }
-
-onMounted(() => {
-  user.value = getStoredUser()
-})
 
 onUnmounted(() => {
   if (debounceTimer) {
@@ -130,12 +133,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="page">
-    <h1>Movie search &amp; review</h1>
-    <p class="muted intro" v-if="user">
-      Signed in as <strong>{{ user.username }}</strong>. Type in the box matching movies appear as
-      you type. Pick one, write your review, then submit.
-    </p>
+  <div class="page" :class="{ embedded }">
+    <template v-if="!embedded">
+      <h1>Movie search &amp; review</h1>
+      <p class="muted intro" v-if="user">
+        Signed in as <strong>{{ user.username }}</strong>. Type in the box matching movies appear as
+        you type. Pick one, write your review, then submit.
+      </p>
+    </template>
+    <template v-else>
+      <h2 class="embed-heading">Write a review</h2>
+      <p class="muted intro" v-if="user">
+        Signed in as <strong>{{ user.username }}</strong>. Search below and submit — same flow as the
+        full dashboard page.
+      </p>
+    </template>
 
     <section class="card section">
       <h2>Find a movie</h2>
@@ -197,6 +209,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.page.embedded {
+  padding-top: 0;
+}
+.embed-heading {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  margin: 0 0 0.5rem;
+}
 .page h1 {
   font-family: var(--font-display);
   font-size: 2rem;

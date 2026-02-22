@@ -1,11 +1,13 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
-import { getStoredUser, clearAuth } from './api/client'
+import { getStoredUser, clearAuth, getAccessToken } from './api/client'
 
 const route = useRoute()
 const router = useRouter()
 const user = computed(() => getStoredUser())
+/** Remount route views when auth changes (e.g. logout still on `/`). */
+const viewKey = computed(() => `${route.path}:${getAccessToken() ? '1' : '0'}`)
 
 function logout() {
   clearAuth()
@@ -34,11 +36,11 @@ function logout() {
     </header>
 
     <main class="main">
-      <RouterView :key="route.path" />
+      <RouterView :key="viewKey" />
     </main>
 
     <footer class="footer">
-      <p class="muted">CineStream Engine — reviews → Kafka → Spark → recommendations</p>
+      <p class="muted">CineBuff for Cinema Addicts</p>
     </footer>
   </div>
 </template>

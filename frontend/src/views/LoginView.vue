@@ -69,10 +69,6 @@ async function register() {
 <template>
   <div class="page">
     <h1>Join the community</h1>
-    <p class="lead muted">
-      Sign in with your username and password, or create an account. JWT is stored in the browser for
-      this demo — use a strong <code>JWT_SECRET_KEY</code> in production.
-    </p>
 
     <div class="tabs">
       <button

@@ -4,14 +4,14 @@ A real-time movie recommendation engine that personalizes suggestions based on u
 
 ## Overview
 
-CineStream processes user movie reviews in real-time using Apache Kafka and PySpark streaming. It uses sentiment analysis to understand user preferences and generates personalized movie recommendations through collaborative filtering.
+CineStream processes user movie reviews in real-time using Apache Kafka and PySpark streaming. It uses **Multinomial Naive Bayes** (TF‑IDF) sentiment on review text, then **heuristic** genre + IMDb recommendations (extensible to CF later).
 
 ## Tech Stack
 
 - **Backend**: FastAPI (Python)
 - **Databases**: MySQL (structured data) + MongoDB (logs)
 - **Streaming**: Apache Kafka + PySpark
-- **ML**: Sentiment Analysis + Collaborative Filtering
+- **ML**: TF‑IDF + Multinomial NB (sentiment); heuristic recommendations (CF-ready)
 - **Infrastructure**: Docker Compose
 
 ## Architecture

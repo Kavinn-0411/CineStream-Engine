@@ -1,16 +1,17 @@
-"""Model-based sentiment processing for review text.
+"""Sentiment scoring for review text using a trained Multinomial Naive Bayes pipeline.
 
-Uses mapInPandas so the Hugging Face pipeline (weights) is loaded ONCE per Spark
-partition, not once per row. Plain Python UDFs often re-initialize or run in
-contexts where a module-level cache does not survive — that looks like
-"loading weights every inference" and is unnecessarily slow.
+Train offline with your labeled CSV:
+    python scripts/train_sentiment_nb.py --data path/to/your_download.csv
+
+Uses mapInPandas so the sklearn ``joblib`` artifact loads ONCE per Spark partition.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
 from pyspark.sql.types import (
     DoubleType,
     IntegerType,
@@ -20,59 +21,84 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
+from streaming.config import StreamingConfig
 
 
-def _sentiment_map_partitions(iterator):
-    """
-    One iterator = one Spark partition. Load the model once at partition start,
-    then score every row in all pandas chunks for this partition.
-
-    WEIGHT LOAD TRIGGER: the line below runs once *per partition*. If you see
-    3–4 loads for one batch, Spark used 3–4 partitions (e.g. local[*] defaults).
-    Use coalesce(1) or SENTIMENT_INFERENCE_PARTITIONS=1 to force a single load.
-    """
-    from transformers import pipeline
-
-    clf = pipeline("sentiment-analysis", model=MODEL_NAME)  # <-- loads HF weights (once per partition)
-
-    for pdf in iterator:
-        if pdf is None:
+def _positive_proba_column(pipeline) -> int:
+    """Index into predict_proba[:, i] for the positive class (handles np.int64 labels)."""
+    clf = pipeline.named_steps.get("clf") if hasattr(pipeline, "named_steps") else pipeline
+    classes = list(getattr(clf, "classes_", getattr(pipeline, "classes_", [0, 1])))
+    for i, c in enumerate(classes):
+        try:
+            if int(c) == 1:
+                return i
+        except (TypeError, ValueError):
             continue
-        if pdf.empty:
-            yield pdf.assign(
-                sentiment_label=pd.Series(dtype=str),
-                sentiment_score=pd.Series(dtype=float),
-                derived_rating=pd.Series(dtype=float),
-            )
-            continue
+    for i, c in enumerate(classes):
+        if str(c).lower() in ("positive", "pos", "true"):
+            return i
+    return len(classes) - 1
 
-        texts = pdf["review_text"].fillna("").astype(str).str.slice(0, 512)
-        labels: list[str] = []
-        scores: list[float] = []
 
-        for t in texts:
-            if not t or not str(t).strip():
-                labels.append("neutral")
-                scores.append(0.0)
+def _nb_sentiment_map_fn(model_path: str):
+    """Build picklable mapInPandas closure (path captured for workers)."""
+
+    def _iterator(iterator):
+        import joblib
+
+        path = Path(model_path)
+        clf = joblib.load(path) if path.is_file() else None
+
+        for pdf in iterator:
+            if pdf is None:
                 continue
-            pred = clf(str(t))[0]
-            label = str(pred["label"]).lower()
-            sc = float(pred["score"])
-            if label == "positive":
-                labels.append("positive")
-                scores.append(max(min(sc, 1.0), -1.0))
-            else:
-                labels.append("negative")
-                scores.append(max(min(-sc, 1.0), -1.0))
+            if pdf.empty:
+                yield pdf.assign(
+                    sentiment_label=pd.Series(dtype=str),
+                    sentiment_score=pd.Series(dtype=float),
+                    derived_rating=pd.Series(dtype=float),
+                )
+                continue
 
-        out = pdf.copy()
-        out["sentiment_label"] = labels
-        out["sentiment_score"] = scores
-        out["derived_rating"] = (
-            ((out["sentiment_score"].astype(float) + 1.0) / 2.0) * 5.0
-        ).round(2)
-        yield out
+            texts = pdf["review_text"].fillna("").astype(str).str.slice(0, 8192).reset_index(drop=True)
+            n = len(texts)
+            labels: list[str] = []
+            scores: list[float] = []
+            ratings: list[float] = []
+
+            if clf is None:
+                for _ in range(n):
+                    labels.append("neutral")
+                    scores.append(0.0)
+                    ratings.append(2.5)
+            else:
+                pos_idx = _positive_proba_column(clf)
+                empty_mask = texts.str.strip() == ""
+                nonempty = ~empty_mask
+                proba_pos = pd.Series(0.5, index=texts.index)
+                if nonempty.any():
+                    proba = clf.predict_proba(texts.loc[nonempty].tolist())
+                    proba_pos.loc[nonempty] = proba[:, pos_idx]
+                # sentiment_score in [-1, 1]: 2p - 1
+                sscore = (proba_pos * 2.0 - 1.0).clip(-1.0, 1.0)
+                for i, t in enumerate(texts):
+                    if str(t).strip() == "":
+                        labels.append("neutral")
+                        scores.append(0.0)
+                        ratings.append(2.5)
+                    else:
+                        p = float(proba_pos.iloc[i])
+                        labels.append("positive" if p >= 0.5 else "negative")
+                        scores.append(float(sscore.iloc[i]))
+                        ratings.append(round(p * 5.0, 2))
+
+            out = pdf.copy()
+            out["sentiment_label"] = labels
+            out["sentiment_score"] = scores
+            out["derived_rating"] = ratings
+            yield out
+
+    return _iterator
 
 
 def _output_schema() -> StructType:
@@ -91,12 +117,15 @@ def _output_schema() -> StructType:
     )
 
 
-def add_sentiment_columns(df: DataFrame, sentiment_partitions: int = 1) -> DataFrame:
+def add_sentiment_columns(
+    df: DataFrame,
+    cfg: StreamingConfig,
+    sentiment_partitions: int = 1,
+) -> DataFrame:
     """
-    Attach sentiment_label, sentiment_score, derived_rating.
-    Model loads once per Spark partition (see pipeline() inside _sentiment_map_partitions).
+    Attach sentiment_label, sentiment_score, derived_rating using
+    ``cfg.sentiment_nb_model_path`` (TfidfVectorizer + MultinomialNB joblib).
     """
-    # Ensure column order matches schema for mapInPandas (stable layout)
     ordered = df.select(
         "event_id",
         "user_id",
@@ -105,6 +134,7 @@ def add_sentiment_columns(df: DataFrame, sentiment_partitions: int = 1) -> DataF
         "event_time",
         "source",
     )
+    fn = _nb_sentiment_map_fn(cfg.sentiment_nb_model_path)
     if sentiment_partitions and sentiment_partitions > 0:
         ordered = ordered.coalesce(sentiment_partitions)
-    return ordered.mapInPandas(_sentiment_map_partitions, schema=_output_schema())
+    return ordered.mapInPandas(fn, schema=_output_schema())

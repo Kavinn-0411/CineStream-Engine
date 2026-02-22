@@ -1,5 +1,5 @@
 """PySpark streaming job:
-reviews topic -> model sentiment -> MySQL user_preferences + recommendations upsert.
+reviews topic -> Multinomial NB sentiment -> MySQL user_preferences + heuristic recommendations.
 """
 
 import logging
@@ -13,7 +13,6 @@ from pyspark.sql.types import StructField, StructType, StringType, IntegerType
 
 from streaming.config import StreamingConfig
 from streaming.processors.sentiment_processor import add_sentiment_columns
-from streaming.processors.recommendation_nb import build_nb_recommendations
 from streaming.processors.recommendation_processor import build_candidate_recommendations
 from streaming.writers.mysql_writer import write_feedback_batch, write_recommendations_batch
 
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 def build_spark_session(cfg: StreamingConfig) -> SparkSession:
-    # mapInPandas / Arrow needs PyArrow installed: pip install pyarrow
     return (
         SparkSession.builder.appName(cfg.app_name)
         .master(cfg.spark_master)
@@ -36,6 +34,16 @@ def build_spark_session(cfg: StreamingConfig) -> SparkSession:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = StreamingConfig()
+    sent_path = Path(cfg.sentiment_nb_model_path)
+    if not sent_path.is_file():
+        raise SystemExit(
+            f"Sentiment model not found: {sent_path}\n"
+            "Train from your labeled CSV:\n"
+            "  python scripts/train_sentiment_nb.py --data path/to/your_download.csv\n"
+            "Or set SENTIMENT_MNB_MODEL_PATH to an existing joblib pipeline."
+        )
+    logger.info("Sentiment model: Multinomial NB (%s)", sent_path)
+
     spark = build_spark_session(cfg)
     spark.sparkContext.setLogLevel("WARN")
 
@@ -66,40 +74,19 @@ def main() -> None:
         .filter(F.col("user_id").isNotNull() & F.col("movie_id").isNotNull() & F.col("review_text").isNotNull())
     )
 
-    scored = add_sentiment_columns(parsed, sentiment_partitions=cfg.sentiment_inference_partitions)
+    scored = add_sentiment_columns(
+        parsed,
+        cfg,
+        sentiment_partitions=cfg.sentiment_inference_partitions,
+    )
 
     def _foreach_batch(df, _batch_id):
         if df.count() == 0:
             return
         write_feedback_batch(df, cfg)
-        nb_path = Path(cfg.recommendation_nb_model_path)
-        if nb_path.is_file():
-            try:
-                recommendations_df = build_nb_recommendations(
-                    scored_reviews_df=df, cfg=cfg, top_n=10
-                )
-                if recommendations_df.limit(1).count() > 0:
-                    logger.info("Recommendations: Multinomial NB (%s)", nb_path)
-                else:
-                    logger.warning(
-                        "NB recommender returned no rows; falling back to heuristic."
-                    )
-                    recommendations_df = build_candidate_recommendations(
-                        scored_reviews_df=df, cfg=cfg, top_n=10
-                    )
-            except Exception as exc:
-                logger.exception("NB recommender failed (%s); using heuristic.", exc)
-                recommendations_df = build_candidate_recommendations(
-                    scored_reviews_df=df, cfg=cfg, top_n=10
-                )
-        else:
-            logger.info(
-                "Recommendations: heuristic (no NB model at %s — run scripts/train_recommendation_nb.py)",
-                nb_path,
-            )
-            recommendations_df = build_candidate_recommendations(
-                scored_reviews_df=df, cfg=cfg, top_n=10
-            )
+        recommendations_df = build_candidate_recommendations(
+            scored_reviews_df=df, cfg=cfg, top_n=10
+        )
         write_recommendations_batch(recommendations_df, cfg)
 
     query = (

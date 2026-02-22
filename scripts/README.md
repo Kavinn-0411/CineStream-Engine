@@ -2,6 +2,17 @@
 
 Utility scripts for CineStream operations.
 
+## train_sentiment_nb.py
+
+Train **TF‑IDF + MultinomialNB** sentiment for the Spark streaming job (writes `models/artifacts/sentiment_mnb.joblib` by default).
+
+```bash
+python scripts/train_sentiment_nb.py --data path/to/labeled_reviews.csv
+python scripts/train_sentiment_nb.py --data ./data/sentiment.csv --text-col review_text --label-col sentiment
+```
+
+CSV needs a text column and labels (`positive`/`negative` or `1`/`0`). See `streaming/README.md`.
+
 ## load_sample_movies.py
 
 Quick script to load the first 1000 movies from CSV into MySQL database with interactive database connection prompts.

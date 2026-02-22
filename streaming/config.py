@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _default_nb_model_path() -> str:
+def _default_sentiment_nb_path() -> str:
     root = Path(__file__).resolve().parents[1]
-    return str(root / "models" / "artifacts" / "recommendation_mnb.joblib")
+    return str(root / "models" / "artifacts" / "sentiment_mnb.joblib")
 
 
 @dataclass
@@ -22,8 +22,7 @@ class StreamingConfig:
     kafka_topic_reviews: str = os.getenv("KAFKA_TOPIC_REVIEWS", "reviews")
     checkpoint_location: str = os.getenv("SPARK_CHECKPOINT_LOCATION", "./checkpoints/reviews_stream")
     trigger_seconds: int = int(os.getenv("SPARK_BATCH_INTERVAL", "10"))
-    # mapInPandas runs one Python worker per partition; each calls pipeline() once.
-    # Default 1 = one model load per micro-batch (good for local). Raise for parallel inference.
+    # mapInPandas: one sklearn load per partition (default 1 for local).
     sentiment_inference_partitions: int = int(os.getenv("SENTIMENT_INFERENCE_PARTITIONS", "1"))
     spark_packages: str = os.getenv(
         "SPARK_PACKAGES",
@@ -36,11 +35,10 @@ class StreamingConfig:
     mysql_user: str = os.getenv("MYSQL_USER", "cinestream_user")
     mysql_password: str = os.getenv("MYSQL_PASSWORD", "cinestream_password")
 
-    # Multinomial NB recommender (train with scripts/train_recommendation_nb.py).
-    # If file exists, streaming uses NB scores; otherwise heuristic (see streaming.main).
-    recommendation_nb_model_path: str = os.getenv(
-        "RECOMMENDATION_MNB_MODEL_PATH",
-        _default_nb_model_path(),
+    # Sentiment: train with scripts/train_sentiment_nb.py --data your.csv
+    sentiment_nb_model_path: str = os.getenv(
+        "SENTIMENT_MNB_MODEL_PATH",
+        _default_sentiment_nb_path(),
     )
 
     @property
